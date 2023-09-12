@@ -220,7 +220,7 @@ public class MediaMonitor extends VirtualFolder {
 		if (realFile.getLastStartPosition() == 0) {
 			elapsed = (double) (System.currentTimeMillis() - realFile.getStartTime()) / 1000;
 		} else {
-			elapsed = (System.currentTimeMillis() - realFile.getLastStartSystemTime()) / 1000;
+			elapsed = (System.currentTimeMillis() - realFile.getLastStartSystemTimeUser()) / 1000;
 			elapsed += realFile.getLastStartPosition();
 		}
 
@@ -231,7 +231,7 @@ public class MediaMonitor extends VirtualFolder {
 			LOGGER.trace("   duration: " + fileDuration);
 			LOGGER.trace("   getLastStartPosition: " + realFile.getLastStartPosition());
 			LOGGER.trace("   getStartTime: " + realFile.getStartTime());
-			LOGGER.trace("   getLastStartSystemTime: " + realFile.getLastStartSystemTime());
+			LOGGER.trace("   getLastStartSystemTimeUser: " + realFile.getLastStartSystemTimeUser());
 			LOGGER.trace("   elapsed: " + elapsed);
 			LOGGER.trace("   minimum play time needed: " + (fileDuration * configuration.getResumeBackFactor()));
 		}
@@ -245,8 +245,13 @@ public class MediaMonitor extends VirtualFolder {
 			elapsed > configuration.getMinimumWatchedPlayTimeSeconds() &&
 			elapsed >= (fileDuration * configuration.getResumeBackFactor())
 		) {
+			LOGGER.trace("final decision: fully played");
 			DLNAResource fileParent = realFile.getParent();
-			if (fileParent != null && !isFullyPlayed(fullPathToFile, true)) {
+			if (fileParent == null) {
+				LOGGER.trace("fileParent is null for {}", fullPathToFile);
+			} else if (isFullyPlayed(fullPathToFile, true)) {
+				LOGGER.trace("{} already marked as fully played", fullPathToFile);
+			} else {
 				/*
 				 * Set to fully played even if it will be deleted or moved, because
 				 * the entry will be cleaned up later in those cases.

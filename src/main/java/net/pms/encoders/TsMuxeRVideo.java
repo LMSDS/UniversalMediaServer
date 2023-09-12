@@ -16,7 +16,6 @@
  */
 package net.pms.encoders;
 
-import static org.apache.commons.lang3.StringUtils.isNotBlank;
 import com.sun.jna.Platform;
 import java.io.File;
 import java.io.IOException;
@@ -28,9 +27,13 @@ import javax.annotation.Nullable;
 import net.pms.Messages;
 import net.pms.configuration.FormatConfiguration;
 import net.pms.configuration.UmsConfiguration;
-import net.pms.dlna.*;
+import net.pms.dlna.DLNAResource;
+import net.pms.dlna.InputFile;
 import net.pms.formats.Format;
 import net.pms.io.*;
+import net.pms.media.audio.MediaAudio;
+import net.pms.media.MediaInfo;
+import net.pms.media.subtitle.MediaSubtitle;
 import net.pms.network.HTTPResource;
 import net.pms.platform.PlatformUtils;
 import net.pms.platform.windows.NTStatus;
@@ -42,6 +45,7 @@ import net.pms.util.ExecutableInfo.ExecutableInfoBuilder;
 import net.pms.util.PlayerUtil;
 import net.pms.util.UMSUtils;
 import net.pms.util.Version;
+import static org.apache.commons.lang3.StringUtils.isNotBlank;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,7 +54,7 @@ public class TsMuxeRVideo extends Engine {
 	public static final EngineId ID = StandardEngineId.TSMUXER_VIDEO;
 
 	/** The {@link Configuration} key for the custom tsMuxeR path. */
-	public static final String KEY_TSMUXER_PATH     = "tsmuxer_path";
+	public static final String KEY_TSMUXER_PATH = "tsmuxer_path";
 
 	/** The {@link Configuration} key for the tsMuxeR executable type. */
 	public static final String KEY_TSMUXER_EXECUTABLE_TYPE = "tsmuxer_executable_type";
@@ -108,10 +112,10 @@ public class TsMuxeRVideo extends Engine {
 	@Override
 	public ProcessWrapper launchTranscode(
 		DLNAResource dlna,
-		DLNAMediaInfo media,
+		MediaInfo media,
 		OutputParams params
 	) throws IOException {
-		// Use device-specific pms conf
+		// Use device-specific ums conf
 		UmsConfiguration prev = configuration;
 		configuration = params.getMediaRenderer().getUmsConfiguration();
 		final String filename = dlna.getFileName();
@@ -237,7 +241,7 @@ public class TsMuxeRVideo extends Engine {
 				"-ss", params.getTimeSeek() > 0 ? "" + params.getTimeSeek() : "0",
 				"-i", filename,
 				"-c", "copy",
-				"-f", "rawvideo",
+				"-f", codecV.equals(FormatConfiguration.H265) ? "hevc" : "rawvideo",
 				"-y",
 				ffVideoPipe.getInputPipe()
 			};
@@ -256,9 +260,9 @@ public class TsMuxeRVideo extends Engine {
 				LOGGER.info("The video will not play or will show a black screen");
 			}
 
-			if (media.getH264AnnexB() != null && media.getH264AnnexB().length > 0) {
+			if (media.getH264AnnexB(newInput) != null && media.getH264AnnexB(newInput).length > 0) {
 				StreamModifier sm = new StreamModifier();
-				sm.setHeader(media.getH264AnnexB());
+				sm.setHeader(media.getH264AnnexB(newInput));
 				sm.setH264AnnexB(true);
 				ffVideoPipe.setModifier(sm);
 			}
@@ -382,7 +386,7 @@ public class TsMuxeRVideo extends Engine {
 					ffAudioPipe = new PipeIPCProcess[numAudioTracks];
 					ffAudio = new ProcessWrapperImpl[numAudioTracks];
 					for (int i = 0; i < media.getAudioTracksList().size(); i++) {
-						DLNAMediaAudio audio = media.getAudioTracksList().get(i);
+						MediaAudio audio = media.getAudioTracksList().get(i);
 						ffAudioPipe[i] = new PipeIPCProcess(System.currentTimeMillis() + "ffmpeg" + i, System.currentTimeMillis() + "audioout" + i, false, true);
 
 						encodedAudioPassthrough = configuration.isEncodedAudioPassthrough() && params.getAid().isNonPCMEncodedAudio() && params.getMediaRenderer().isWrapEncodedAudioIntoPCM();
@@ -510,7 +514,7 @@ public class TsMuxeRVideo extends Engine {
 			if (configuration.isFix25FPSAvMismatch()) {
 				fps = "25";
 			}
-			pw.println(videoType + ", \"" + ffVideoPipe.getOutputPipe() + "\", " + (fps != null ? ("fps=" + fps + ", ") : "") + (width != -1 ? ("video-width=" + width + ", ") : "") + (height != -1 ? ("video-height=" + height + ", ") : "") + videoparams);
+			pw.println(videoType + ", \"" + ffVideoPipe.getOutputPipe() + "\", " + (fps != null ? ("fps=" + fps + ", ") : "") + videoparams);
 
 			if (ffAudioPipe != null && ffAudioPipe.length == 1) {
 				String timeshift = "";
@@ -567,7 +571,7 @@ public class TsMuxeRVideo extends Engine {
 				pw.println(type + ", \"" + ffAudioPipe[0].getOutputPipe() + "\", " + timeshift + "track=2");
 			} else if (ffAudioPipe != null) {
 				for (int i = 0; i < media.getAudioTracksList().size(); i++) {
-					DLNAMediaAudio lang = media.getAudioTracksList().get(i);
+					MediaAudio lang = media.getAudioTracksList().get(i);
 					String timeshift = "";
 					boolean ac3Remux;
 					boolean dtsRemux;
@@ -703,10 +707,10 @@ public class TsMuxeRVideo extends Engine {
 
 	@Override
 	public boolean isCompatible(DLNAResource resource) {
-		DLNAMediaSubtitle subtitle = resource.getMediaSubtitle();
+		MediaSubtitle subtitle = resource.getMediaSubtitle();
 
 		// Check whether the subtitle actually has a language defined,
-		// uninitialized DLNAMediaSubtitle objects have a null language.
+		// uninitialized MediaSubtitle objects have a null language.
 		if (subtitle != null && subtitle.getLang() != null) {
 			// The resource needs a subtitle, but we do not support subtitles for tsMuxeR.
 			// @todo add subtitles support for tsMuxeR
